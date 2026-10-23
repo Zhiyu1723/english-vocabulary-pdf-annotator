@@ -1,0 +1,4 @@
+interface:
+  display_name: "English Vocabulary PDF Annotator"
+  short_description: "Annotate unknown English words for a fixed learner vocabulary"
+  default_prompt: "Annotate this English PDF using my installed word list."
