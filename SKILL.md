@@ -26,6 +26,7 @@ A successful result:
 - uses only words or matching forms from the bundled list in every English explanation;
 - gives concise explanations, normally 3-10 words;
 - appends no word list or glossary after the source pages;
+- preserves the original page count by fitting all notes into the existing pages;
 - contains no clipped, overlapping, crossing-leader, or unreadable annotations.
 
 ## Workflow
@@ -63,7 +64,7 @@ A successful result:
 8. Open or render the output and inspect:
    - the first page with an annotation;
    - every page containing dense annotations;
-   - the final source page and any continuation note pages;
+   - the final source page;
    - any page with rotated text, unusual columns, or large figures.
 
    If an annotation covers source text, shorten its explanation or rerun the renderer after improving placement. Never accept an annotation merely because it was written successfully.
@@ -84,7 +85,7 @@ Keep the original page content at its existing size and position. For pages with
 
 Do not draw lines or arrows between words and notes. The highlighted word, matching number, and line-aligned card provide the association without cluttering the source page or crossing other text.
 
-If a page has more notes than the side column can hold, put only the remaining numbered notes on a continuation note page after all source pages. These pages are part of the annotations, not a glossary. Keep every target marked and preserve the same numbering.
+Fit all notes within the source page. The renderer first uses normal spacing, then automatically retries with compact and tight typography, including smaller fonts, shorter leading, tighter card padding, and no card backgrounds in the tightest mode. If notes still do not fit, shorten explanations or merge inflections and rerun. Never create a continuation note page merely to hold overflow.
 
 ## Failure handling
 
