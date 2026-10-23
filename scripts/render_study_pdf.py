@@ -7,34 +7,52 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from xml.sax.saxutils import escape
 
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, RectangleObject
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
-from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, TableStyle
 
 from lexicon import default_word_list, load_word_list
 from validate_definitions import load_json, validate
 
 
 NOTE_FONT = "Helvetica"
-NOTE_FONT_SIZE = 6.0
-NOTE_LEADING = 7.0
 NOTE_COLOR = colors.HexColor("#194B3A")
 NOTE_FILL = colors.HexColor("#FFF4B8")
 NOTE_RULE = colors.HexColor("#4E7661")
 SIDEBAR_WIDTH = 236.0
 SIDEBAR_PAD = 12.0
-NOTE_TITLE_FONT_SIZE = 7.2
-NOTE_BODY_FONT_SIZE = 6.7
-NOTE_BODY_LEADING = 7.8
+NOTE_PROFILES = [
+    {
+        "name": "normal",
+        "title_size": 7.2,
+        "body_size": 6.7,
+        "leading": 7.8,
+        "card_pad": 4.0,
+        "note_gap": 0.8,
+        "cards": True,
+    },
+    {
+        "name": "compact",
+        "title_size": 6.6,
+        "body_size": 6.1,
+        "leading": 6.9,
+        "card_pad": 2.4,
+        "note_gap": 0.4,
+        "cards": True,
+    },
+    {
+        "name": "tight",
+        "title_size": 6.1,
+        "body_size": 5.7,
+        "leading": 6.3,
+        "card_pad": 1.2,
+        "note_gap": 0.15,
+        "cards": False,
+    },
+]
 
 
 def load_json_file(path: Path) -> dict:
@@ -89,6 +107,7 @@ def layout_sidebar_notes(
     source_width: float,
     height: float,
     notes: list[tuple[int, dict, str]],
+    profile: dict,
 ) -> tuple[list[dict], list[tuple[int, dict, str]]]:
     max_width = SIDEBAR_WIDTH - (2 * SIDEBAR_PAD) - 17.0
     cursor = 43.0
@@ -105,16 +124,16 @@ def layout_sidebar_notes(
     for key in sorted(groups, key=lambda item: (item[1], item[0])):
         group_notes = sorted(groups[key], key=lambda item: float(item[1]["bbox"][0]))
         rendered_notes: list[dict] = []
-        group_height = 4.0
+        group_height = float(profile["card_pad"])
         for number, candidate, definition in group_notes:
             prefix = f"{number} {candidate['word']}"
             definition_text = f"({definition})"
             prefix_width = pdfmetrics.stringWidth(
-                prefix, "Helvetica-Bold", NOTE_TITLE_FONT_SIZE
+                prefix, "Helvetica-Bold", float(profile["title_size"])
             )
             same_line_space = max_width - prefix_width - 3.0
             if pdfmetrics.stringWidth(
-                definition_text, NOTE_FONT, NOTE_BODY_FONT_SIZE
+                definition_text, NOTE_FONT, float(profile["body_size"])
             ) <= same_line_space:
                 rendered = {
                     "number": number,
@@ -123,14 +142,14 @@ def layout_sidebar_notes(
                     "prefix_width": prefix_width,
                     "definition": definition_text,
                     "definition_lines": [],
-                    "height": NOTE_BODY_LEADING + 0.8,
+                    "height": float(profile["leading"]) + 0.35,
                 }
             else:
                 definition_lines = wrap_text(
                     definition_text,
                     max_width - 8.0,
                     NOTE_FONT,
-                    NOTE_BODY_FONT_SIZE,
+                    float(profile["body_size"]),
                 )
                 rendered = {
                     "number": number,
@@ -139,8 +158,8 @@ def layout_sidebar_notes(
                     "prefix_width": prefix_width,
                     "definition": "",
                     "definition_lines": definition_lines,
-                    "height": NOTE_BODY_LEADING
-                    + len(definition_lines) * NOTE_BODY_LEADING,
+                    "height": float(profile["leading"])
+                    + len(definition_lines) * float(profile["leading"]),
                 }
             rendered_notes.append(rendered)
             group_height += rendered["height"]
@@ -162,7 +181,7 @@ def layout_sidebar_notes(
                 "height": group_height,
             }
         )
-        cursor = top + group_height + 0.8
+        cursor = top + group_height + float(profile["note_gap"])
     return placed, overflow
 
 
@@ -172,6 +191,7 @@ def draw_sidebar(
     height: float,
     page_number: int,
     groups: list[dict],
+    profile: dict,
 ) -> None:
     edge = source_width + 3.0
     pdf_canvas.saveState()
@@ -193,26 +213,27 @@ def draw_sidebar(
         card_height = group["height"]
         x = edge + SIDEBAR_PAD
         y_bottom = height - top - card_height
-        pdf_canvas.setFillColor(colors.HexColor("#EDF3EE"))
-        pdf_canvas.roundRect(
-            x - 2.0,
-            y_bottom,
-            SIDEBAR_WIDTH - (2 * SIDEBAR_PAD) + 4.0,
-            card_height,
-            2.0,
-            stroke=0,
-            fill=1,
-        )
-        pdf_canvas.setFillColor(NOTE_RULE)
-        pdf_canvas.rect(x - 2.0, y_bottom, 1.4, card_height, stroke=0, fill=1)
+        if profile["cards"]:
+            pdf_canvas.setFillColor(colors.HexColor("#EDF3EE"))
+            pdf_canvas.roundRect(
+                x - 2.0,
+                y_bottom,
+                SIDEBAR_WIDTH - (2 * SIDEBAR_PAD) + 4.0,
+                card_height,
+                2.0,
+                stroke=0,
+                fill=1,
+            )
+            pdf_canvas.setFillColor(NOTE_RULE)
+            pdf_canvas.rect(x - 2.0, y_bottom, 1.4, card_height, stroke=0, fill=1)
 
-        baseline = height - top - 7.5
+        baseline = height - top - float(profile["leading"])
         for note in group["notes"]:
             pdf_canvas.setFillColor(NOTE_COLOR)
-            pdf_canvas.setFont("Helvetica-Bold", NOTE_TITLE_FONT_SIZE)
+            pdf_canvas.setFont("Helvetica-Bold", float(profile["title_size"]))
             pdf_canvas.drawString(x + 2.0, baseline, note["prefix"])
             if note["definition"]:
-                pdf_canvas.setFont(NOTE_FONT, NOTE_BODY_FONT_SIZE)
+                pdf_canvas.setFont(NOTE_FONT, float(profile["body_size"]))
                 pdf_canvas.drawString(
                     x + 2.0 + note["prefix_width"] + 3.0,
                     baseline,
@@ -220,12 +241,12 @@ def draw_sidebar(
                 )
                 baseline -= note["height"]
             else:
-                baseline -= NOTE_BODY_LEADING
-                pdf_canvas.setFont(NOTE_FONT, NOTE_BODY_FONT_SIZE)
+                baseline -= float(profile["leading"])
+                pdf_canvas.setFont(NOTE_FONT, float(profile["body_size"]))
                 for line in note["definition_lines"]:
                     pdf_canvas.drawString(x + 10.0, baseline, line)
-                    baseline -= NOTE_BODY_LEADING
-            baseline -= 0.8
+                    baseline -= float(profile["leading"])
+            baseline -= float(profile["note_gap"])
     pdf_canvas.restoreState()
 
 
@@ -234,24 +255,50 @@ def make_overlay(
     height: float,
     page_number: int,
     notes: list[tuple[int, dict, str]],
-) -> tuple[PdfReader, list[tuple[int, dict, str]]]:
+) -> tuple[PdfReader, str]:
     stream = io.BytesIO()
     total_width = source_width + SIDEBAR_WIDTH
     pdf_canvas = canvas.Canvas(stream, pagesize=(total_width, height))
     pdf_canvas.setTitle("Annotated source page")
-    placed, overflow = layout_sidebar_notes(source_width, height, notes)
+    placed: list[dict] | None = None
+    selected_profile: dict | None = None
+    overflow: list[tuple[int, dict, str]] = []
+    for profile in NOTE_PROFILES:
+        candidate_placed, candidate_overflow = layout_sidebar_notes(
+            source_width,
+            height,
+            notes,
+            profile,
+        )
+        if not candidate_overflow:
+            placed = candidate_placed
+            selected_profile = profile
+            break
+        overflow = candidate_overflow
+    if placed is None or selected_profile is None:
+        overflow_words = ", ".join(
+            str(candidate["word"]) for _number, candidate, _definition in overflow[:8]
+        )
+        raise ValueError(
+            f"page {page_number} has too many notes to fit in any supported layout; "
+            f"shorten definitions or merge more inflected forms ({overflow_words})"
+        )
     for group in placed:
         for number, candidate, _definition in group["source_notes"]:
             target = tuple(float(value) for value in candidate["bbox"])
             draw_source_mark(pdf_canvas, source_width, height, target, number)
-    for number, candidate, _definition in overflow:
-        target = tuple(float(value) for value in candidate["bbox"])
-        draw_source_mark(pdf_canvas, source_width, height, target, number)
-    draw_sidebar(pdf_canvas, source_width, height, page_number, placed)
+    draw_sidebar(
+        pdf_canvas,
+        source_width,
+        height,
+        page_number,
+        placed,
+        selected_profile,
+    )
 
     pdf_canvas.save()
     stream.seek(0)
-    return PdfReader(stream), overflow
+    return PdfReader(stream), str(selected_profile["name"])
 
 
 def expand_page(page: object, amount: float) -> None:
@@ -267,119 +314,6 @@ def expand_page(page: object, amount: float) -> None:
                 float(box.top),
             ]
         )
-
-
-def build_overflow_notes(
-    notes: list[tuple[int, int, dict, str]],
-) -> PdfReader:
-    stream = io.BytesIO()
-    document = SimpleDocTemplate(
-        stream,
-        pagesize=A4,
-        rightMargin=16 * mm,
-        leftMargin=16 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
-        title="Continued word notes",
-        author="English Vocabulary PDF Annotator",
-    )
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "NotesTitle",
-        parent=styles["Title"],
-        fontName="Helvetica-Bold",
-        fontSize=17,
-        leading=21,
-        textColor=colors.HexColor("#173E31"),
-        alignment=TA_LEFT,
-        spaceAfter=2 * mm,
-    )
-    subtitle_style = ParagraphStyle(
-        "NotesSubtitle",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=8.5,
-        leading=11,
-        textColor=colors.HexColor("#53645D"),
-        spaceAfter=5 * mm,
-    )
-    body_style = ParagraphStyle(
-        "NotesBody",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=7.8,
-        leading=10,
-        textColor=colors.HexColor("#1E2924"),
-    )
-    number_style = ParagraphStyle(
-        "NotesNumber",
-        parent=body_style,
-        fontName="Helvetica-Bold",
-        textColor=colors.HexColor("#173E31"),
-    )
-    header_style = ParagraphStyle(
-        "NotesHeader",
-        parent=body_style,
-        fontName="Helvetica-Bold",
-        textColor=colors.white,
-    )
-
-    data = [
-        [
-            Paragraph("No.", header_style),
-            Paragraph("Page", header_style),
-            Paragraph("Word", header_style),
-            Paragraph("Explanation", header_style),
-        ]
-    ]
-    for number, page_number, candidate, definition in sorted(notes):
-        data.append(
-            [
-                Paragraph(str(number), number_style),
-                Paragraph(str(page_number), body_style),
-                Paragraph(escape(str(candidate["word"])), number_style),
-                Paragraph(escape(f"({definition})"), body_style),
-            ]
-        )
-
-    table = LongTable(
-        data,
-        colWidths=[12 * mm, 13 * mm, 43 * mm, 106 * mm],
-        repeatRows=1,
-        splitByRow=1,
-    )
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#244D3E")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                (
-                    "ROWBACKGROUNDS",
-                    (0, 1),
-                    (-1, -1),
-                    [colors.white, colors.HexColor("#F4F7F2")],
-                ),
-                ("LINEBELOW", (0, 0), (-1, -1), 0.35, colors.HexColor("#C9D4CB")),
-                ("BOX", (0, 0), (-1, -1), 0.55, colors.HexColor("#829A8B")),
-            ]
-        )
-    )
-    document.build(
-        [
-            Paragraph("Continued word notes", title_style),
-            Paragraph(
-                "Numbered notes that did not fit in their source page sidebar.",
-                subtitle_style,
-            ),
-            table,
-        ]
-    )
-    stream.seek(0)
-    return PdfReader(stream)
 
 
 def render(
@@ -428,8 +362,8 @@ def render(
     writer = PdfWriter()
     writer.clone_document_from_reader(reader)
     original_page_count = len(reader.pages)
-    overflow_notes: list[tuple[int, int, dict, str]] = []
     sidebar_page_count = 0
+    layout_modes: set[str] = set()
 
     for page_index in range(original_page_count):
         pypdf_page = writer.pages[page_index]
@@ -444,21 +378,11 @@ def render(
             continue
         width = float(pypdf_page.mediabox.width)
         height = float(pypdf_page.mediabox.height)
-        overlay, overflow = make_overlay(width, height, page_index + 1, notes)
+        overlay, layout_mode = make_overlay(width, height, page_index + 1, notes)
+        layout_modes.add(layout_mode)
         expand_page(pypdf_page, SIDEBAR_WIDTH)
         pypdf_page.merge_page(overlay.pages[0], over=True)
         sidebar_page_count += 1
-        overflow_notes.extend(
-            (number, page_index + 1, candidate, definition)
-            for number, candidate, definition in overflow
-        )
-
-    continuation_page_count = 0
-    if overflow_notes:
-        continuation = build_overflow_notes(overflow_notes)
-        continuation_page_count = len(continuation.pages)
-        for page in continuation.pages:
-            writer.add_page(page)
 
     if reader.metadata:
         writer.add_metadata(
@@ -476,10 +400,9 @@ def render(
     os.replace(temp_path, output)
 
     reopened = PdfReader(str(output))
-    expected_page_count = original_page_count + continuation_page_count
-    if len(reopened.pages) != expected_page_count:
+    if len(reopened.pages) != original_page_count:
         raise ValueError(
-            f"unexpected page count: expected {expected_page_count}, "
+            f"unexpected page count: expected {original_page_count}, "
             f"found {len(reopened.pages)}"
         )
 
@@ -488,7 +411,7 @@ def render(
         "source_page_count": original_page_count,
         "output_page_count": len(reopened.pages),
         "sidebar_page_count": sidebar_page_count,
-        "continued_note_page_count": continuation_page_count,
+        "layout_modes": sorted(layout_modes),
         "annotated_ids": len(covered_ids),
         "validation_warnings": report["warnings"],
     }
@@ -535,6 +458,21 @@ def selftest() -> None:
         assert result["output_page_count"] == result["source_page_count"]
         assert result["sidebar_page_count"] == 1
         assert output.is_file()
+
+        dense_notes = [
+            (
+                index + 1,
+                {
+                    "word": f"term{index + 1}",
+                    "bbox": [20, 80 + index * 2, 50, 88 + index * 2],
+                    "line_top": 80 + index * 2,
+                },
+                "a short meaning",
+            )
+            for index in range(20)
+        ]
+        _dense_overlay, dense_mode = make_overlay(400, 300, 1, dense_notes)
+        assert dense_mode in {"compact", "tight"}
 
 
 def parse_args() -> argparse.Namespace:
